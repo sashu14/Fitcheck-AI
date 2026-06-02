@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { User, Sparkles, Shirt, RefreshCw, ChevronLeft, ChevronRight, ZoomIn } from "lucide-react";
-import { generateTryOnFromSelfie, generateTryOnImage } from "../services/stylingService";
+import { User, Sparkles, Shirt, ChevronRight, ZoomIn } from "lucide-react";
+import { generateTryOnFromSelfie, buildPollinationsUrl } from "../services/stylingService";
 
 // Editorial editorial fallback images per occasion
 const UNSPLASH_REVIEWS = {
@@ -66,59 +66,51 @@ export default function TryOnAvatar({ profile, activeOutfit, userApiKey, styleSc
     if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
 
     async function generate() {
-      const outfitDesc = buildOutfitDescription(activeOutfit, profile);
-
       try {
-        // PRIMARY: Gemini image-in → image-out (preserves the person's identity)
-        if (profile?.photo && profile.photo.startsWith("data:")) {
-          const result = await generateTryOnFromSelfie(profile.photo, outfitDesc, userApiKey);
-          if (isMountedRef.current) {
-            setAfterImageUrl(result);
-            setGenerationStage("done");
+        // Gemini Vision describes person → Pollinations Flux generates After image
+        const urlOrDataUrl = await generateTryOnFromSelfie(
+          profile?.photo && profile.photo.startsWith("data:") ? profile.photo : null,
+          activeOutfit?.items || [],
+          activeOutfit?.name || "outfit",
+          profile?.occasion || "casual",
+          userApiKey
+        );
+        if (isMountedRef.current) {
+          setAfterImageUrl(urlOrDataUrl);
+          setGenerationStage("done");
+          // If it's already a data URL (e.g. from a paid Gemini key), mark loaded
+          if (urlOrDataUrl.startsWith("data:")) {
+            setAfterImageLoaded(true);
             setIsGenerating(false);
           }
-        } else {
-          // No photo — fall through to text-to-image
-          throw new Error("No selfie uploaded");
+          // If it's an HTTP URL (Pollinations), image onLoad will fire
         }
-      } catch (err1) {
-        console.warn("Selfie-based try-on failed, trying Imagen 3:", err1);
-        setGenerationStage("imagen");
-
-        try {
-          // SECONDARY: Imagen 3 text-to-image from the AI prompt
-          const prompt = activeOutfit.tryOnImagePrompt || outfitDesc;
-          const result = await generateTryOnImage(prompt, userApiKey);
-          if (isMountedRef.current) {
-            setAfterImageUrl(result);
-            setGenerationStage("done");
-            setIsGenerating(false);
-          }
-        } catch (err2) {
-          console.warn("Imagen 3 failed, trying Pollinations:", err2);
+      } catch (err) {
+        console.warn("generateTryOnFromSelfie failed:", err);
+        // Emergency fallback — Pollinations with outfit name only
+        const fallbackUrl = buildPollinationsUrl(
+          `Fashion photo of a person wearing ${activeOutfit?.name || "stylish outfit"}, photorealistic, 4k`,
+          activeOutfit?.name
+        );
+        if (isMountedRef.current) {
+          setAfterImageUrl(fallbackUrl);
           setGenerationStage("fallback");
-
-          // TERTIARY: Pollinations free API
-          const rawPrompt = activeOutfit.tryOnImagePrompt || outfitDesc;
-          const shortPrompt = rawPrompt.length > 600 ? rawPrompt.substring(0, 600) : rawPrompt;
-          const pollinationsUrl = `https://image.pollinations.ai/p/${encodeURIComponent(shortPrompt)}?width=400&height=500&nologo=true&model=turbo&seed=${Date.now()}`;
-          
-          if (isMountedRef.current) {
-            setAfterImageUrl(pollinationsUrl);
-            // Give Pollinations 15s to load, then fall back to Unsplash
-            safetyTimerRef.current = setTimeout(() => {
-              if (isMountedRef.current && !afterImageLoaded) {
-                const fallback = UNSPLASH_REVIEWS[profile?.occasion] || UNSPLASH_REVIEWS.casual;
-                setAfterImageUrl(fallback);
-                setAfterImageLoaded(true);
-                setIsGenerating(false);
-                setGenerationStage("done");
-              }
-            }, 15000);
-          }
         }
       }
+
+      // Safety timeout — if Pollinations takes too long, show Unsplash
+      safetyTimerRef.current = setTimeout(() => {
+        if (isMountedRef.current && !afterImageLoaded) {
+          const fallbackImg = UNSPLASH_REVIEWS[profile?.occasion] || UNSPLASH_REVIEWS.casual;
+          setAfterImageUrl(fallbackImg);
+          setAfterImageLoaded(true);
+          setIsGenerating(false);
+          setGenerationStage("done");
+        }
+      }, 25000);
     }
+
+
 
     generate();
   }, [activeOutfit?.name, userApiKey]);
