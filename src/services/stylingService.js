@@ -193,12 +193,104 @@ export async function generateOutfitRecommendations(profile, customFeedback = ""
 }
 
 /**
- * Generate official photorealistic image using Google's Imagen 3 API from Google AI Studio.
- * Takes the text prompt and uses the user's Gemini key to generate high-fidelity results.
+ * ============================================================
+ * VIRTUAL TRY-ON: Generate an "After" photo of the SAME PERSON
+ * wearing the AI-recommended outfit — like the WeShop AI style.
+ *
+ * Strategy:
+ * 1. PRIMARY: Use gemini-2.0-flash-exp (image generation mode)
+ *    with the user's selfie as input + outfit swap instruction.
+ *    This preserves face, hair, skin tone — only swaps clothes.
+ * 2. FALLBACK: Use Imagen 3 text-to-image with a detailed prompt
+ *    built from the outfit + user's described appearance.
+ * ============================================================
+ */
+export async function generateTryOnFromSelfie(userPhotoBase64, outfitPrompt, userApiKey = "") {
+  const apiKey = userApiKey.trim() || DEFAULT_GEMINI_KEY;
+
+  // Extract mime type and base64 data from data URL
+  let mimeType = "image/jpeg";
+  let base64Data = userPhotoBase64;
+  if (userPhotoBase64 && userPhotoBase64.startsWith("data:")) {
+    const matches = userPhotoBase64.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+    if (matches && matches.length === 3) {
+      mimeType = matches[1];
+      base64Data = matches[2];
+    }
+  }
+
+  const instruction = `You are a professional fashion AI. 
+Look at this person's selfie carefully. Keep EVERYTHING about this person EXACTLY the same:
+- Their face, facial features, skin tone, complexion
+- Their hair (length, style, color, texture)  
+- Their body shape, height, proportions
+- Their pose and expression
+- The mirror/background environment
+
+The ONLY thing you should change is their clothing. Replace their current outfit with:
+${outfitPrompt}
+
+Generate a photorealistic, high-quality "after" photo showing this EXACT SAME PERSON wearing this new outfit. 
+The result should look like a real mirror selfie photo, matching the lighting, angle, and style of the original photo.
+Do not add watermarks. Keep it natural and photorealistic.`;
+
+  // PRIMARY: Try Gemini 2.0 Flash image generation (image-in, image-out)
+  try {
+    const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${apiKey}`;
+    
+    const response = await fetch(geminiEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: instruction },
+            {
+              inlineData: {
+                mimeType: mimeType,
+                data: base64Data
+              }
+            }
+          ]
+        }],
+        generationConfig: {
+          responseModalities: ["IMAGE", "TEXT"],
+          temperature: 0.7,
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.warn("Gemini image-gen failed:", errText);
+      throw new Error(`Gemini image-gen: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    // Look for image part in response
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    for (const part of parts) {
+      if (part.inlineData?.data) {
+        const imgMime = part.inlineData.mimeType || "image/png";
+        return `data:${imgMime};base64,${part.inlineData.data}`;
+      }
+    }
+    throw new Error("No image in Gemini response");
+
+  } catch (geminiErr) {
+    console.warn("Gemini image-gen failed, falling back to Imagen 3:", geminiErr);
+    
+    // FALLBACK: Imagen 3 text-to-image
+    return generateTryOnImage(outfitPrompt, userApiKey);
+  }
+}
+
+/**
+ * Generate photorealistic image using Google's Imagen 3 API (text-to-image fallback)
  */
 export async function generateTryOnImage(prompt, userApiKey = "") {
   const apiKey = userApiKey.trim() || DEFAULT_GEMINI_KEY;
-  // Google AI Studio / Gemini API REST endpoint for Imagen 3 (correct format)
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:generateImages?key=${apiKey}`;
 
   const response = await fetch(endpoint, {
