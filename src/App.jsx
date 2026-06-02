@@ -122,7 +122,11 @@ export default function App() {
       )}
       
       {/* Header Bar */}
-      <header className="w-full max-w-7xl mx-auto px-6 py-6 flex justify-between items-center z-20 border-b border-white/5 bg-obsidian-900/50 backdrop-blur-md sticky top-0">
+      <header className={`w-full max-w-7xl mx-auto px-6 py-6 flex justify-between items-center z-20 sticky top-0 transition-all duration-700 ${
+        step === 'welcome'
+          ? 'bg-transparent border-b border-transparent backdrop-blur-none'
+          : 'bg-obsidian-900/50 border-b border-white/5 backdrop-blur-md'
+      }`}>
         <div className="flex items-center gap-2 cursor-pointer" onClick={handleReset}>
           <div className="h-9 w-9 rounded-full bg-luxury-gold-gradient flex items-center justify-center border border-gold-500/30">
             <Sparkles className="w-4 h-4 text-obsidian-900" />
@@ -147,7 +151,7 @@ export default function App() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-7xl mx-auto px-6 py-12 flex items-center justify-center z-10">
+      <main className="flex-1 w-full max-w-7xl mx-auto px-6 py-12 flex items-center justify-center z-10 relative">
         
         {/* STEP 1: WELCOME SCREEN (Consolidated High-Clarity Lookbook Dashboard) */}
         {step === "welcome" && (
@@ -341,7 +345,11 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="w-full text-center py-8 border-t border-white/5 text-[10px] text-obsidian-400 font-sans tracking-widest z-10 bg-obsidian-950/20">
+      <footer className={`w-full text-center py-8 text-[10px] font-sans tracking-widest z-10 transition-all duration-700 ${
+        step === 'welcome'
+          ? 'text-white/30 border-t border-transparent bg-transparent'
+          : 'text-obsidian-400 border-t border-white/5 bg-obsidian-950/20'
+      }`}>
         © 2026 FITCHECK AI. ALL RIGHTS RESERVED.
       </footer>
 
