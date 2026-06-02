@@ -256,16 +256,55 @@ CRITICAL: Do NOT describe what they are currently wearing (clothes). Only descri
  * ============================================================
  */
 function buildFluxPrompt(personDescription, outfitItems, outfitName, occasion) {
-  const outfitStr = outfitItems?.length
-    ? outfitItems.map(i => `${i.name} (${i.color})`).join(", ")
-    : outfitName || "stylish outfit";
+  // Build a very explicit outfit description with exact colors FIRST
+  // Flux is a text-first model — the most important thing must come at the start
+  const topItem    = outfitItems?.find(i => i.type === "Top");
+  const bottomItem = outfitItems?.find(i => i.type === "Bottom");
+  const shoeItem   = outfitItems?.find(i => i.type === "Shoes");
+  const accItem    = outfitItems?.find(i => i.type === "Accessory");
+
+  // Convert hex to plain English for Flux (it understands color names better than hex)
+  const colorName = (hex) => {
+    if (!hex) return '';
+    const h = hex.toLowerCase();
+    if (h === '#ffffff' || h === '#fff') return 'white';
+    if (h === '#000000' || h === '#000') return 'black';
+    if (h.match(/#[0-9a-f]{6}/) ) {
+      const r = parseInt(h.slice(1,3),16), g = parseInt(h.slice(3,5),16), b = parseInt(h.slice(5,7),16);
+      if (r>200&&g>200&&b>200) return 'light ' + (r>g&&r>b?'red':g>b?'green':'blue');
+      if (r<60&&g<60&&b<60) return 'black';
+      if (r>180&&g<100&&b<100) return 'red';
+      if (r<100&&g<100&&b>180) return 'blue';
+      if (r<100&&g>150&&b<100) return 'green';
+      if (r>180&&g>120&&b<80) return 'orange';
+      if (r>180&&g>180&&b<100) return 'yellow';
+      if (r>150&&g<100&&b>150) return 'purple';
+      if (r>180&&g>140&&b>100) return 'beige';
+      if (r>100&&g>60&&b<60)   return 'brown';
+      if (r<100&&g>100&&b>150) return 'teal';
+      if (r>180&&g<120&&b>120) return 'pink';
+      if (r>100&&g>100&&b>100) return 'grey';
+    }
+    return '';
+  };
+
+  const outfitParts = [];
+  if (topItem)    outfitParts.push(`${colorName(topItem.color)} ${topItem.name}`.trim());
+  if (bottomItem) outfitParts.push(`${colorName(bottomItem.color)} ${bottomItem.name}`.trim());
+  if (shoeItem)   outfitParts.push(`${shoeItem.name}`);
+  if (accItem)    outfitParts.push(`${accItem.name}`);
+
+  const outfitStr = outfitParts.length ? outfitParts.join(', ') : (outfitName || 'stylish outfit');
 
   if (personDescription) {
-    return `${personDescription}, now wearing: ${outfitStr}. ONLY the clothing has changed. Same person, same face, same hair, same cap, same pose, same mirror background. High quality realistic photography, fashion photo, sharp focus, 4k.`;
+    // OUTFIT FIRST — colors must be at the very start so Flux prioritizes them
+    // Person description trimmed and put after
+    const shortDesc = personDescription.slice(0, 350);
+    return `OUTFIT: ${outfitStr}. Fashion try-on photo. ${shortDesc} wearing the exact outfit described above: ${outfitStr}. Same face, same hair, same background, same pose. Only clothes changed. Photorealistic, sharp, 4k fashion photography.`;
   }
 
   // Generic (no photo uploaded)
-  return `Photorealistic fashion photo of a stylish person wearing ${outfitStr}, ${occasion || "casual"} look, studio lighting, full body shot, sharp focus, 4k photography.`;
+  return `High quality fashion photograph. A stylish person wearing ${outfitStr}. ${occasion || 'casual'} occasion. Full body shot. Photorealistic, professional studio lighting, 4k.`;
 }
 
 /**
@@ -331,60 +370,60 @@ function getFallbackResponse(profile) {
     casual: {
       masculine: [
         {
-          name: "Elevated Blue Denim Look",
-          description: "A clean and upgraded daily outfit featuring a light blue shirt paired with dark blue jeans.",
-          tryOnImagePrompt: "Photorealistic fashion photo of a sporty young man wearing a light blue linen shirt and dark blue slim jeans, outdoor cafe, natural lighting, 4k.",
+          name: "Dark Olive Street Look",
+          description: "A sharp street-style outfit with an olive green jacket and dark navy jeans.",
+          tryOnImagePrompt: "Photorealistic street-style photo of a young man wearing an olive green bomber jacket over a black t-shirt and dark navy slim jeans, urban street, natural lighting, 4k.",
           items: [
-            { type: "Top", name: "Light Blue Linen Shirt", color: "#AED6F1", searchQuery: "light blue cotton shirt men slim fit" },
-            { type: "Bottom", name: "Dark Wash Slim Jeans", color: "#1B4F72", searchQuery: "dark wash slim fit jeans men" },
-            { type: "Shoes", name: "White Leather Sneakers", color: "#FFFFFF", searchQuery: "plain white leather sneakers men" },
-            { type: "Accessory", name: "Black Sunglasses", color: "#000000", searchQuery: "classic black sunglasses men" }
+            { type: "Top", name: "Olive Green Bomber Jacket", color: "#4A5240", searchQuery: "olive green bomber jacket men" },
+            { type: "Bottom", name: "Dark Navy Slim Jeans", color: "#1A237E", searchQuery: "dark navy slim fit jeans men" },
+            { type: "Shoes", name: "Black Chunky Sneakers", color: "#111111", searchQuery: "black chunky platform sneakers men" },
+            { type: "Accessory", name: "Brown Leather Watch", color: "#6D4C41", searchQuery: "brown leather strap watch men" }
           ],
-          styleNotes: "Roll up the sleeves and leave the shirt untucked for a clean, relaxed style."
+          styleNotes: "Leave the jacket unzipped over a black tee for a cool layered look."
         }
       ],
       feminine: [
         {
-          name: "Elevated Beige & White",
-          description: "An elegant daytime look combining a white top with loose beige trousers.",
-          tryOnImagePrompt: "Photorealistic fashion photo of an elegant South Asian woman wearing a white cotton top and high-waisted wide-leg beige trousers, sunlit city street, 4k.",
+          name: "Bold Navy & Red Power Look",
+          description: "A striking outfit pairing a deep navy blazer with a red mini skirt.",
+          tryOnImagePrompt: "Photorealistic fashion photo of a woman wearing a fitted deep navy blazer and red mini skirt, city street, bold editorial look, 4k.",
           items: [
-            { type: "Top", name: "White Ribbed Crop Top", color: "#FFFFFF", searchQuery: "white ribbed crop top women" },
-            { type: "Bottom", name: "Beige Wide-Leg Trousers", color: "#E5C494", searchQuery: "high waist beige wide leg trousers women" },
-            { type: "Shoes", name: "Tan Leather Sandals", color: "#CD7F32", searchQuery: "tan flat leather sandals women" },
-            { type: "Accessory", name: "Gold Hoop Earrings", color: "#D4AF37", searchQuery: "gold medium hoop earrings" }
+            { type: "Top", name: "Deep Navy Fitted Blazer", color: "#0D1B3E", searchQuery: "navy blue fitted blazer women" },
+            { type: "Bottom", name: "Cherry Red Mini Skirt", color: "#C0392B", searchQuery: "red mini skirt women" },
+            { type: "Shoes", name: "Black Ankle Boots", color: "#111111", searchQuery: "black ankle boots women" },
+            { type: "Accessory", name: "Gold Chain Necklace", color: "#D4AF37", searchQuery: "gold chain necklace women" }
           ],
-          styleNotes: "Tuck in the top and wear flat sandals for a balanced aesthetic."
+          styleNotes: "Pair with a simple black top underneath the blazer to let the bold colors shine."
         }
       ]
     },
     office: {
       masculine: [
         {
-          name: "Classic Office Suit",
-          description: "A formal office look pairing a crisp white shirt with dark gray trousers.",
-          tryOnImagePrompt: "Photorealistic portrait of a professional man wearing a tailored white dress shirt and dark charcoal trousers, bright corporate office, 4k.",
+          name: "Slate Blue Business Look",
+          description: "A modern office outfit with a slate blue shirt and charcoal trousers.",
+          tryOnImagePrompt: "Photorealistic portrait of a professional man wearing a slate blue dress shirt and dark charcoal formal trousers, corporate office, 4k.",
           items: [
-            { type: "Top", name: "White Formal Shirt", color: "#FFFFFF", searchQuery: "white formal cotton shirt men" },
-            { type: "Bottom", name: "Dark Gray Trousers", color: "#4A5568", searchQuery: "charcoal grey formal trousers men" },
-            { type: "Shoes", name: "Black Oxford Shoes", color: "#1A1A1A", searchQuery: "black leather oxford formal shoes men" },
-            { type: "Accessory", name: "Black Leather Belt", color: "#000000", searchQuery: "simple black leather formal belt men" }
+            { type: "Top", name: "Slate Blue Dress Shirt", color: "#4A7196", searchQuery: "slate blue formal shirt men" },
+            { type: "Bottom", name: "Charcoal Slim Trousers", color: "#3A3A3A", searchQuery: "charcoal grey slim trousers men" },
+            { type: "Shoes", name: "Dark Brown Oxford Shoes", color: "#4E342E", searchQuery: "dark brown leather oxford shoes men" },
+            { type: "Accessory", name: "Silver Tie Clip", color: "#9E9E9E", searchQuery: "silver tie clip men formal" }
           ],
-          styleNotes: "Keep the shirt neatly tucked in and wear dark formal shoes to match the belt."
+          styleNotes: "Pair with a dark burgundy tie to complete the sharp professional look."
         }
       ],
       feminine: [
         {
-          name: "Smart Office Blouse",
-          description: "A clean professional style matching a green blouse with neat black trousers.",
-          tryOnImagePrompt: "Photorealistic portrait of a professional woman wearing an emerald green satin blouse and slim black trousers, office desk, 4k.",
+          name: "Burgundy Power Suit",
+          description: "A commanding office look in a deep burgundy blazer with matching trousers.",
+          tryOnImagePrompt: "Photorealistic portrait of a professional woman in a deep burgundy blazer and matching trousers, bright office, editorial 4k.",
           items: [
-            { type: "Top", name: "Emerald Green Satin Blouse", color: "#0F5257", searchQuery: "emerald green formal blouse women" },
-            { type: "Bottom", name: "Black Slim Trousers", color: "#1A1A1A", searchQuery: "black slim fit formal trousers women" },
-            { type: "Shoes", name: "Black Pointed Heels", color: "#000000", searchQuery: "black pointed toe heels formal women" },
-            { type: "Accessory", name: "Silver Wristwatch", color: "#C0C0C0", searchQuery: "classic silver metal strap watch women" }
+            { type: "Top", name: "Deep Burgundy Blazer", color: "#6D1A2A", searchQuery: "burgundy blazer women formal" },
+            { type: "Bottom", name: "Matching Burgundy Trousers", color: "#6D1A2A", searchQuery: "burgundy formal trousers women" },
+            { type: "Shoes", name: "Nude Pointed Heels", color: "#D4A574", searchQuery: "nude pointed heels women" },
+            { type: "Accessory", name: "Gold Stud Earrings", color: "#D4AF37", searchQuery: "gold stud earrings women formal" }
           ],
-          styleNotes: "Tuck the blouse into the trousers and style with simple silver jewelry."
+          styleNotes: "Add a silk cream blouse underneath for contrast against the rich burgundy."
         }
       ]
     }
