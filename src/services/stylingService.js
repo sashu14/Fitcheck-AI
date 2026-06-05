@@ -42,79 +42,49 @@ export async function generateOutfitRecommendations(profile, customFeedback = ""
     ? profile.avoidColors.join(", ") 
     : "None";
 
-  // System instructions optimized to strictly preserve facial identity and body structure
-  const systemInstruction = 
-    `You are a helpful, expert AI fashion stylist and critic. 
-    Based on the user's profile and uploaded picture, perform a professional style audit and curate outfit recommendations.
-    
-    CRITICAL AUDIT & RATING INSTRUCTIONS:
-    If the user has uploaded an image, carefully audit their current outfit in the photo:
-    1. Calculate a "styleScore" from 1 to 10 based on how well-tailored, color-coordinated, and stylish their current clothing is. Be realistic but encouraging (e.g. 6 to 9).
-    2. Write a highly constructive, direct, and simple "styleCritique" (1 to 2 sentences) in plain English. Point out what is currently working in their photo and exactly how they can improve their outfit (e.g. "Your blue shirt is great, but standard denim makes it look basic. Elevating it with camel chinos will balance your silhouette.").
-    3. Calculate individual 1-10 scores for the following "styleRating" categories:
-       - "colorHarmony": Rating of color choices, balance, neutrals vs accents.
-       - "fitSilhouette": Rating of tailoring, garment cut, body proportions matching.
-       - "layeringStructure": Rating of garment layering depth, textural contrast, accessory usage.
-       - "occasionMatch": Suitability of garments for the occasion.
-    4. The 3 to 5 outfits you recommend in the "outfits" array MUST be specifically designed to solve the critique and elevate their style score to a perfect 10/10!
-    
-    If no photo is uploaded (mannequin mode):
-    - Set "styleScore" to null.
-    - Set "styleCritique" to "Using silhouette mannequin. Upload a photo to receive a personalized style rating!".
-    - Set all "styleRating" category scores to null.
-    
-    CRITICAL IDENTITY PRESERVATION INSTRUCTIONS:
-    If the user has uploaded an image, analyze their physical figure (body shape, proportions, height, build) and facial structure (face shape, skin tone, hair length/style/color).
-    For each outfit, generate a highly descriptive "tryOnImagePrompt" in English. Start the prompt with:
-    "A photorealistic, highly detailed, full-body studio portrait of the EXACT SAME PERSON from the uploaded photo (matching their exact face structure, facial features, skin complexion, hair texture/length/style, and physical body figure), wearing..."
-    Then describe the suggested outfit items (styles, colors, fits) and the background setting matching the occasion. Keep the language clean.
-    
-    If no photo is uploaded, base the physical description in "tryOnImagePrompt" on their selected gender identity and body type.
-    
-    Make sure the outfit colors coordinate perfectly. Provide a "color" hex code (e.g. "#FFFFFF") for each item.
-    
-    KEEP THE LANGUAGE IN THE APP EXTREMELY SIMPLE, DIRECT, AND EASY TO UNDERSTAND. Avoid complex fashion jargon.
-    You MUST return ONLY a valid JSON object, strictly conforming to the JSON schema below. No markdown wrapping, no explanation. Just raw JSON.`;
+  const systemInstruction = `You are an expert AI fashion stylist. Your job is to suggest outfits that strictly use the user's preferred colors. 
+ABSOLUTE RULE: Only use colors the user specifies. Never suggest burgundy, purple, or any other color unless it's in their preferred list.
+If user says white and black — every item must be white or black.
+If a photo is provided, rate their current style (1-10) and critique it.
+Return ONLY valid JSON. No markdown. No explanation. No extra text.`;
+
 
   const promptText = `
-    Generate style ratings and outfit recommendations for this user profile:
-    - Gender/Style Identity: ${profile.gender}
-    - Body Type/Fit Preference: ${profile.fitPreference} (e.g. slim, relaxed, oversized)
-    - Occasion: ${profile.occasion} (e.g. casual, office, party, date night, gym)
-    - Budget: ${profile.budget}
-    - Preferred Colors: ${colorsPref}
-    - Avoid Colors: ${colorsAvoid}
-    
-    ${customFeedback ? `USER CHANGE REQUEST: "${customFeedback}". Adjust the outfits based on this feedback.` : ''}
+Generate outfit recommendations for this user:
+- Gender: ${profile.gender}
+- Fit Preference: ${profile.fitPreference}
+- Occasion: ${profile.occasion}
+- Budget: ${profile.budget}
+- REQUIRED Colors (MUST use these): ${colorsPref}
+- FORBIDDEN Colors (MUST NOT use): ${colorsAvoid}
 
-    You must return a JSON object matching this structure:
+CRITICAL: Every outfit item's color MUST come from the "REQUIRED Colors" list above.
+If the user says white and black, ALL items must be white or black.
+If they say blue and grey, use ONLY blue and grey combinations.
+Do NOT suggest colors outside their preferences.
+
+${customFeedback ? `USER CHANGE REQUEST: "${customFeedback}". Adjust accordingly.` : ""}
+
+Return ONLY a raw JSON object (no markdown, no explanation) in this exact format:
+{
+  "styleScore": number_or_null,
+  "styleCritique": "1-2 sentence critique",
+  "styleRating": {"overall": number_or_null, "colorHarmony": number_or_null, "fitSilhouette": number_or_null, "layeringStructure": number_or_null, "occasionMatch": number_or_null},
+  "outfits": [
     {
-      "styleScore": number | null, // A rating from 1 to 10 for their current photo, or null if no photo
-      "styleCritique": "A simple 1-2 sentence critique explaining how to improve their style.",
-      "styleRating": {
-        "overall": number | null, // must match styleScore
-        "colorHarmony": number | null, // 1 to 10
-        "fitSilhouette": number | null, // 1 to 10
-        "layeringStructure": number | null, // 1 to 10
-        "occasionMatch": number | null // 1 to 10
-      },
-      "outfits": [
-        {
-          "name": "Creative simple outfit name",
-          "description": "Simple 1-2 sentence description of this look.",
-          "tryOnImagePrompt": "A highly detailed, photorealistic prompt for generating a picture of a person matching the user's uploaded figure and face wearing this exact outfit. Be specific about clothing styles, colors, fit, and background context.",
-          "items": [
-            {
-              "type": "Top" | "Bottom" | "Shoes" | "Accessory",
-              "name": "Simple item name, e.g. White cotton shirt",
-              "color": "Valid HEX code for visual try-on, e.g. #FFFFFF",
-              "searchQuery": "Simple search query, e.g. white cotton shirt men slim fit"
-            }
-          ],
-          "styleNotes": "Simple stylist advice, e.g. Tuck in the shirt for a clean look."
-        }
-      ]
+      "name": "Outfit name",
+      "description": "1-2 sentence description",
+      "tryOnImagePrompt": "Detailed photorealistic image prompt",
+      "items": [
+        {"type": "Top", "name": "Item name", "color": "#HEXCODE", "searchQuery": "search query for shopping"},
+        {"type": "Bottom", "name": "Item name", "color": "#HEXCODE", "searchQuery": "search query"},
+        {"type": "Shoes", "name": "Item name", "color": "#HEXCODE", "searchQuery": "search query"},
+        {"type": "Accessory", "name": "Item name", "color": "#HEXCODE", "searchQuery": "search query"}
+      ],
+      "styleNotes": "Quick styling tip"
     }
+  ]
+}
   `;
 
   // Parse multimodal base64 image if uploaded
@@ -136,40 +106,40 @@ export async function generateOutfitRecommendations(profile, customFeedback = ""
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [
-          {
-            parts: parts
-          }
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.7,
-        }
+        contents: [{ parts }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 4096 }
       })
     });
 
     if (!response.ok) {
       const errText = await response.text();
-      console.warn("Gemini API error:", errText);
+      console.error("Gemini API HTTP error:", response.status, errText.slice(0, 300));
       throw new Error(`Gemini API error: ${response.status}`);
     }
 
     const data = await response.json();
+    console.log("Gemini raw response candidates:", data.candidates?.length, "finish:", data.candidates?.[0]?.finishReason);
+
     const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    
     if (!resultText) {
-      throw new Error("Empty response from Gemini API");
+      console.error("Gemini returned no text. Full response:", JSON.stringify(data).slice(0, 500));
+      throw new Error("Empty response from Gemini");
     }
 
+    // Robustly extract JSON — handles markdown fences, leading text, trailing text
     let cleanedText = resultText.trim();
-    if (cleanedText.startsWith("```")) {
-      cleanedText = cleanedText.replace(/^```json\s*/i, "").replace(/```$/, "");
+    // Strip markdown code fences
+    cleanedText = cleanedText.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "");
+    // Find the outermost { ... } block
+    const jsonStart = cleanedText.indexOf("{");
+    const jsonEnd   = cleanedText.lastIndexOf("}");
+    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+      cleanedText = cleanedText.slice(jsonStart, jsonEnd + 1);
     }
-    
+    console.log("Parsed JSON snippet:", cleanedText.slice(0, 150));
+
     const resultObj = JSON.parse(cleanedText);
     
     return {
