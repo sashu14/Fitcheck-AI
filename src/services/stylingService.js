@@ -172,17 +172,22 @@ export async function generateOutfitRecommendations(profile, customFeedback = ""
     
     const resultObj = JSON.parse(cleanedText);
     
-    // Inject shopping links dynamically into the returned outfits
     return {
       styleScore: resultObj.styleScore,
       styleCritique: resultObj.styleCritique,
       styleRating: resultObj.styleRating || null,
       outfits: resultObj.outfits.map(outfit => ({
         ...outfit,
-        items: outfit.items.map(item => ({
-          ...item,
-          ...buildShoppingURLs(item.searchQuery || item.name, item.type, profile.gender)
-        }))
+        items: outfit.items.map(item => {
+          // Auto-build search query if Gemini didn't provide one
+          const searchQ = item.searchQuery
+            || `${item.name} ${profile.gender === "women" ? "women" : "men"}`.trim();
+          return {
+            ...item,
+            searchQuery: searchQ,
+            ...buildShoppingURLs(searchQ, item.type, profile.gender)
+          };
+        })
       }))
     };
 
