@@ -309,42 +309,147 @@ function buildFluxPrompt(personDescription, outfitItems, outfitName, occasion) {
 
 /**
  * ============================================================
+/**
+ * ============================================================
  * generateTryOnFromSelfie — MAIN EXPORT
  *
- * 2-step reliable pipeline:
- * 1. Gemini 2.5 Flash Vision → exact person description (FREE, works)
- * 2. Pollinations Flux → high quality image generation (FREE, reliable)
+ * Pipeline:
+ * 1. Gemini Vision → extract person description
+ * 2. Gemini image generation models → try to get real try-on image
+ * 3. Curated Unsplash fashion photo matched to outfit color/occasion
  * ============================================================
  */
 export async function generateTryOnFromSelfie(userPhotoBase64, outfitItems, outfitName, occasion, userApiKey = "") {
-  // Step 1: Get exact person description from Gemini Vision
+  const apiKey = userApiKey.trim() || DEFAULT_GEMINI_KEY;
+
+  // Step 1: Extract person description from selfie
   let personDescription = "";
   if (userPhotoBase64 && userPhotoBase64.startsWith("data:")) {
     personDescription = await extractPersonDescription(userPhotoBase64, userApiKey);
   }
 
-  // Step 2: Build identity-aware Flux prompt
+  // Step 2: Build the image generation prompt
   const prompt = buildFluxPrompt(personDescription, outfitItems, outfitName, occasion);
 
-  // Step 3: Generate via Pollinations Flux (reliable, free, high quality)
-  return buildPollinationsUrl(prompt, outfitName);
+  // Step 3: Try Gemini image generation models
+  const GEMINI_IMAGE_MODELS = [
+    "gemini-2.5-flash-image",
+    "gemini-3.1-flash-image-preview",
+    "gemini-3.1-flash-image",
+    "gemini-3-pro-image-preview",
+    "gemini-3-pro-image",
+  ];
+
+  let mimeType = "image/jpeg";
+  let base64Data = null;
+  if (userPhotoBase64?.startsWith("data:")) {
+    const m = userPhotoBase64.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+    if (m) { mimeType = m[1]; base64Data = m[2]; }
+  }
+
+  for (const model of GEMINI_IMAGE_MODELS) {
+    try {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const parts = [{ text: prompt }];
+      if (base64Data) parts.push({ inlineData: { mimeType, data: base64Data } });
+
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { responseModalities: ["IMAGE", "TEXT"], temperature: 0.5 }
+        })
+      });
+
+      if (res.status === 429) { console.warn(`${model}: quota exceeded`); continue; }
+      if (!res.ok) { console.warn(`${model}: ${res.status}`); continue; }
+
+      const d = await res.json();
+      const resParts = d.candidates?.[0]?.content?.parts || [];
+      for (const p of resParts) {
+        if (p.inlineData?.data) {
+          console.log(`✓ Got image from ${model}`);
+          return `data:${p.inlineData.mimeType || "image/jpeg"};base64,${p.inlineData.data}`;
+        }
+      }
+    } catch (e) {
+      console.warn(`${model} failed:`, e.message);
+    }
+  }
+
+  // Step 4: Smart Unsplash fallback — find a fashion photo that matches the outfit
+  return getCuratedFashionPhoto(outfitItems, occasion, personDescription);
 }
 
 /**
- * Build a Pollinations Flux image URL (synchronous — returns URL immediately)
- * The browser fetches and renders the image asynchronously.
+ * Get a curated Unsplash fashion photo that matches the outfit's dominant color and occasion.
+ * Uses Unsplash Source (no key needed, always works).
+ */
+function getCuratedFashionPhoto(outfitItems, occasion, personDescription) {
+  // Determine dominant outfit color from top item
+  const topItem    = outfitItems?.find(i => i.type === "Top");
+  const bottomItem = outfitItems?.find(i => i.type === "Bottom");
+  const primaryHex = topItem?.color || bottomItem?.color || "#333333";
+
+  // Detect gender from person description
+  const isMale = personDescription?.toLowerCase().includes("man") ||
+                 personDescription?.toLowerCase().includes("male") ||
+                 personDescription?.toLowerCase().includes(" he ");
+  const genderTerm = isMale ? "man fashion" : "woman fashion";
+
+  // Map hex color to Unsplash search term
+  const r = parseInt(primaryHex.slice(1,3)||"33",16);
+  const g = parseInt(primaryHex.slice(3,5)||"33",16);
+  const b = parseInt(primaryHex.slice(5,7)||"33",16);
+
+  let colorTerm = "neutral";
+  if (r > 180 && g < 100 && b < 100) colorTerm = "red";
+  else if (r < 80  && g < 80  && b > 160) colorTerm = "blue";
+  else if (r < 80  && g > 140 && b < 100) colorTerm = "green";
+  else if (r > 160 && g > 120 && b < 80)  colorTerm = "orange";
+  else if (r > 140 && g < 80  && b > 140) colorTerm = "purple";
+  else if (r > 180 && g < 120 && b > 120) colorTerm = "pink";
+  else if (r < 60  && g < 60  && b < 60)  colorTerm = "black";
+  else if (r > 200 && g > 200 && b > 200) colorTerm = "white";
+  else if (r > 100 && g > 60  && b < 60)  colorTerm = "brown";
+  else if (r < 80  && g > 100 && b > 140) colorTerm = "teal";
+  else if (r < 60  && g < 60  && b > 80)  colorTerm = "navy";
+  else if (r > 150 && g > 150 && b < 80)  colorTerm = "yellow";
+  else if (r > 120 && g > 80  && b < 40)  colorTerm = "olive";
+
+  // Map occasion to style
+  const occasionMap = {
+    casual: "street style casual",
+    office: "business professional formal",
+    party: "party night outfit glamorous",
+    "date night": "elegant date night outfit",
+    gym: "athletic gym workout"
+  };
+  const occasionTerm = occasionMap[occasion?.toLowerCase()] || "fashion outfit";
+
+  // Outfit name keywords for better search
+  const outfitKeywords = outfitItems?.slice(0,2).map(i => i.name.split(" ").slice(0,2).join("+")).join("+") || "outfit";
+
+  // Use Unsplash Source with specific search terms
+  const query = encodeURIComponent(`${colorTerm} ${genderTerm} ${occasionTerm}`);
+  const seed = outfitKeywords.replace(/[^a-z0-9]/gi, "").slice(0,20) || "fashion";
+
+  return `https://source.unsplash.com/512x640/?${query}&sig=${seed}`;
+}
+
+/**
+ * Legacy exports for backwards compatibility
  */
 export function buildPollinationsUrl(prompt, seed = "fitcheck") {
-  const cleanPrompt = prompt.slice(0, 1800); // URL limit
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?width=512&height=640&model=flux&nologo=true&seed=${encodeURIComponent(String(seed))}&enhance=true`;
+  // Pollinations now requires payment — use Unsplash fashion fallback instead
+  return getCuratedFashionPhoto([], "casual", "");
 }
 
-/**
- * Legacy generateTryOnImage — kept for any old callers
- */
 export function generateTryOnImage(prompt) {
-  return buildPollinationsUrl(prompt);
+  return getCuratedFashionPhoto([], "casual", "");
 }
+
 
 // ============================================================
 // Fallback mock response when Gemini API is unavailable

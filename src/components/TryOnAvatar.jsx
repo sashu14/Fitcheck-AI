@@ -42,9 +42,11 @@ export default function TryOnAvatar({ profile, activeOutfit, userApiKey, styleSc
   // Refs for cleanup
   const isMountedRef = useRef(true);
   const safetyTimerRef = useRef(null);
+  const afterImageLoadedRef = useRef(false); // avoid stale closure in timeout
 
   useEffect(() => {
     isMountedRef.current = true;
+    afterImageLoadedRef.current = false;
     return () => {
       isMountedRef.current = false;
       if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
@@ -98,16 +100,17 @@ export default function TryOnAvatar({ profile, activeOutfit, userApiKey, styleSc
         }
       }
 
-      // Safety timeout — if Pollinations takes too long, show Unsplash
+      // Safety timeout — if image takes too long, show curated Unsplash fashion photo
       safetyTimerRef.current = setTimeout(() => {
-        if (isMountedRef.current && !afterImageLoaded) {
+        if (isMountedRef.current && !afterImageLoadedRef.current) {
           const fallbackImg = UNSPLASH_REVIEWS[profile?.occasion] || UNSPLASH_REVIEWS.casual;
           setAfterImageUrl(fallbackImg);
+          afterImageLoadedRef.current = true;
           setAfterImageLoaded(true);
           setIsGenerating(false);
           setGenerationStage("done");
         }
-      }, 25000);
+      }, 20000);
     }
 
 
@@ -116,6 +119,7 @@ export default function TryOnAvatar({ profile, activeOutfit, userApiKey, styleSc
   }, [activeOutfit?.name, userApiKey]);
 
   const handleAfterImageLoad = () => {
+    afterImageLoadedRef.current = true;
     setAfterImageLoaded(true);
     setIsGenerating(false);
     setGenerationStage("done");
@@ -128,6 +132,7 @@ export default function TryOnAvatar({ profile, activeOutfit, userApiKey, styleSc
   const handleAfterImageError = () => {
     const fallback = UNSPLASH_REVIEWS[profile?.occasion] || UNSPLASH_REVIEWS.casual;
     setAfterImageUrl(fallback);
+    afterImageLoadedRef.current = true;
     setAfterImageLoaded(true);
     setIsGenerating(false);
     setGenerationStage("done");
